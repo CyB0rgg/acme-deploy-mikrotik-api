@@ -1,0 +1,42 @@
+# Environment files with credentials
+mikrotik.env
+*.env
+!*.env.example
+
+# Internal project files (development only)
+_project_files_internal/
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Certificate files (for testing)
+*.pem
+*.crt
+*.key
+*.csr
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Backup files
+*.bak
+*.backup
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
