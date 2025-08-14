@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-08-14
+
+**Copyright (c) CyB0rgg <dev@bluco.re>**
+
+### Added
+- **User Permission Documentation** - Comprehensive guide for creating dedicated ACME users with minimal required policies
+- **Authentication Troubleshooting** - Step-by-step guide for resolving 401 Unauthorized errors
+- **Special Character Password Support** - Improved handling of passwords containing special characters (!@#$%)
+
+### Changed
+- **Simplified User Policies** - Reduced required policies to minimal set: `read,write,api,rest-api`
+- **Enhanced Documentation** - Added detailed troubleshooting section with common authentication issues
+- **Improved Password Handling** - Fixed shell interpretation issues with special characters in passwords
+
+### Removed
+- **Certificate Cleanup Functions** - Removed `remove_certificate()` and `cleanup_old_certificates()` functions
+- **MIKROTIK_CLEANUP_OLD Configuration** - Removed unnecessary cleanup configuration option
+- **MIKROTIK_CERT_NAME_PREFIX Configuration** - Removed redundant certificate naming prefix option
+
+### Fixed
+- **Authentication with Special Characters** - Fixed Basic Auth header generation to properly handle special characters
+- **Documentation Accuracy** - Corrected all references to removed cleanup functionality
+
 ## [1.0.0] - 2025-08-14
 
 **Copyright (c) CyB0rgg <dev@bluco.re>**

@@ -5,7 +5,7 @@
 #
 # Copyright (c) CyB0rgg <dev@bluco.re>
 # License: MIT
-# Version: 1.0.0
+# Version: 1.1.0
 
 # Exit on any error
 set -e
@@ -131,7 +131,7 @@ api_call() {
   curl_opts+=("-w" "%{http_code}")  # Write HTTP status code
   curl_opts+=("-X" "$method")
   curl_opts+=("-H" "Content-Type: application/json")
-  curl_opts+=("-H" "Authorization: Basic $(echo -n "$MIKROTIK_USERNAME:$MIKROTIK_PASSWORD" | base64)")
+  curl_opts+=("-H" "Authorization: Basic $(printf '%s:%s' "$MIKROTIK_USERNAME" "$MIKROTIK_PASSWORD" | base64)")
   curl_opts+=("--connect-timeout" "$MIKROTIK_TIMEOUT")
   curl_opts+=("--max-time" "$((MIKROTIK_TIMEOUT * 2))")
   

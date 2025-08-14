@@ -80,7 +80,7 @@ Create and edit `~/.acme.sh/mikrotik.env` with your RouterOS connection details:
 # Required: RouterOS Connection Details
 MIKROTIK_HOST=192.168.1.1
 MIKROTIK_USERNAME=admin
-MIKROTIK_PASSWORD=your-secure-password
+MIKROTIK_PASSWORD="your-secure-password"  # Use quotes for passwords with special characters (!@#$%)
 ```
 
 ### Default Service Configuration
@@ -112,6 +112,43 @@ MIKROTIK_LOG_LEVEL=standard         # standard, debug, quiet
 ```
 
 **Note**: The script's primary purpose is updating the www-ssl service certificate for HTTPS web interface access. This is enabled by default. Additional services (api-ssl, hotspot) are optional and disabled by default.
+
+### User Permissions
+
+The RouterOS user must have sufficient privileges for REST API access and certificate management:
+
+#### Required User Groups
+For certificate deployment, the user needs to be in one of these groups:
+- `full` - Full administrative access (recommended for testing)
+- `write` - Write access to system resources
+- Custom group with specific policies (see below)
+
+#### Custom User Group Setup
+If you don't want to use the `admin` user, create a dedicated user with minimal required permissions:
+
+```bash
+# In RouterOS terminal/Winbox:
+/user group add name=acme-deploy policy=read,write,api,rest-api
+
+# Create dedicated user
+/user add name=acme-user password=your-secure-password group=acme-deploy
+
+# Verify user permissions
+/user print detail where name=acme-user
+```
+
+#### Required Policies
+The user group must have these policies enabled:
+- `read` - Read system information
+- `write` - Modify certificates and services
+- `api` - REST API access
+- `rest-api` - REST API functionality
+
+#### Troubleshooting Authentication
+1. **Test with admin user first** to verify script functionality
+2. **Check user group**: `/user print detail where name=your-username`
+3. **Verify API access**: Try accessing `https://your-router/rest/system/resource` in browser
+4. **Check RouterOS version**: REST API requires RouterOS v7.1+
 
 ## Usage
 
@@ -492,7 +529,6 @@ curl -k -u "admin:password" "https://192.168.1.1/rest/system/resource"
 
 ### 4. Certificate Security
 - Certificates are automatically validated before upload
-- Old certificates are cleaned up automatically
 - Certificate/key matching is verified
 
 ## API Endpoints Used
@@ -502,10 +538,60 @@ curl -k -u "admin:password" "https://192.168.1.1/rest/system/resource"
 | Test Connection | GET | `/rest/system/resource` | Verify API access |
 | Import Certificate | POST | `/rest/certificate/import` | Upload cert/key |
 | List Certificates | GET | `/rest/certificate` | Find existing certs |
-| Remove Certificate | DELETE | `/rest/certificate/{id}` | Clean up old certs |
 | Update WWW-SSL | PATCH | `/rest/ip/service/www-ssl` | Configure HTTPS |
 | Update API-SSL | PATCH | `/rest/ip/service/api-ssl` | Configure API HTTPS |
 | Update Hotspot SSL | PATCH | `/rest/ip/hotspot/profile/default` | Configure Hotspot SSL |
+
+## Troubleshooting
+
+### Authentication Issues
+
+#### 401 Unauthorized Error
+1. **Test with admin user first**:
+   ```bash
+   MIKROTIK_USERNAME=admin MIKROTIK_PASSWORD=admin-password acme.sh --deploy -d example.com --deploy-hook mikrotik
+   ```
+
+2. **Check user group permissions**:
+   ```bash
+   # In RouterOS terminal:
+   /user print detail where name=your-username
+   ```
+
+3. **Verify REST API access**:
+   ```bash
+   # Test direct API access:
+   curl -k -u "username:password" https://your-router:443/rest/system/resource
+   ```
+
+4. **Create dedicated ACME user** (recommended):
+   ```bash
+   # In RouterOS terminal:
+   /user group add name=acme-deploy policy=read,write,api,rest-api
+   /user add name=acme-user password=secure-password group=acme-deploy
+   ```
+
+#### Password with Special Characters
+- **Always use quotes**: `MIKROTIK_PASSWORD="pass!@#$%"`
+- **Test simple password first**: Verify user works with basic password
+- **Check shell escaping**: Some shells may require additional escaping
+
+### Common Issues
+
+#### Certificate Upload Fails
+- **Check file permissions**: Ensure certificate and key files are readable
+- **Verify certificate format**: RouterOS expects PEM format
+- **Check certificate validity**: Use `openssl x509 -in cert.pem -text -noout`
+
+#### API Connection Issues
+- **Test connectivity**: `curl -k https://your-router:443/rest/system/resource`
+- **Check RouterOS version**: REST API requires v7.1+
+- **Verify HTTPS service**: Ensure www-ssl service is enabled and running
+
+#### Service Update Failures
+- **Check service names**: Use `/ip service print` in RouterOS terminal
+- **Verify certificate exists**: Check certificate was imported successfully
+- **Review service configuration**: Some services may have additional requirements
 
 ## Contributing
 

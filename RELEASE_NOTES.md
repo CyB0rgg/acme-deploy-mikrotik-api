@@ -1,200 +1,143 @@
-# MikroTik RouterOS API Deploy Hook v1.0.0 - First Release
+# MikroTik RouterOS API Deploy Hook v1.1.0
 
-**Release Date**: August 14, 2025
-**Version**: 1.0.0
-**Status**: Production Ready ✅
+**Release Date**: August 14, 2025  
 **Copyright**: (c) CyB0rgg <dev@bluco.re>
 
-## 🎉 First Release Summary
+## 🎯 What's New in v1.1.0
 
-This is the first stable release of the MikroTik RouterOS API Deploy Hook for ACME.sh. After extensive development, testing, and debugging on live RouterOS systems, the script is now production-ready and fully functional.
+This release focuses on **streamlining the authentication experience** and **removing unnecessary complexity** while maintaining all core certificate deployment functionality.
 
-## 🚀 What's New
+### 🔐 **Enhanced Authentication**
+- **Simplified User Policies** - Reduced required RouterOS policies to minimal set: `read,write,api,rest-api`
+- **Fixed Special Character Passwords** - Resolved authentication issues with passwords containing `!@#$%` and other special characters
+- **Comprehensive Troubleshooting** - Added step-by-step authentication debugging guide
 
-### Core Features
-- **REST API Integration** - Complete replacement for SSH/SCP-based certificate deployment
-- **Automated Certificate Management** - Upload, import, verify, and deploy SSL certificates
-- **Primary Service Integration** - Automatic www-ssl (HTTPS web interface) updates (enabled by default)
-- **Optional Services** - Additional api-ssl and hotspot SSL support (disabled by default)
+### 🧹 **Streamlined Configuration**
+- **Removed Certificate Cleanup** - Eliminated unnecessary cleanup functions and configuration options
+- **Simplified Certificate Naming** - Removed redundant `MIKROTIK_CERT_NAME_PREFIX` configuration
+- **Cleaner Script Architecture** - Focused on core certificate deployment functionality
+
+### 📚 **Improved Documentation**
+- **User Permission Guide** - Complete instructions for creating dedicated ACME users
+- **Authentication Troubleshooting** - Detailed guide for resolving 401 Unauthorized errors
+- **Password Best Practices** - Clear guidance for handling special characters in passwords
+
+## 🚀 **Key Features**
+
+- **RouterOS v7.x REST API Integration** - Modern API-based certificate deployment
+- **Automated Certificate Management** - Upload, import, verification, and service updates
+- **Primary www-ssl Service Support** - HTTPS web interface certificates (enabled by default)
+- **Optional Services** - api-ssl and hotspot SSL support (configurable)
 - **Certificate Verification** - Serial number and SHA256 fingerprint validation
-- **Smart Naming** - Domain + expiry date certificate naming (e.g., `example.com-2025-11-12`)
-- **Comprehensive Logging** - Debug, standard, and quiet modes with detailed output
+- **Smart Certificate Naming** - Automatic domain-expiry format (e.g., `example.com-2025-11-12`)
+- **Comprehensive Logging** - Debug, standard, and quiet modes
 
-### Advanced Capabilities
-- **Hotspot SSL Support** - Pattern-based hotspot profile certificate updates
-- **Connectivity Testing** - API connectivity verification after www-ssl changes
-- **Robust Error Handling** - Detailed error messages with troubleshooting guidance
-- **Flexible Configuration** - Environment file with multiple search locations
-- **Security First** - HTTPS by default, secure credential handling
+## 🔧 **Installation**
 
-## 📋 Testing Status
-
-### ✅ Fully Tested Features
-- Certificate upload via RouterOS v7.19.4 REST API
-- Certificate import and verification system
-- Service updates (www-ssl, api-ssl, hotspot profiles)
-- Certificate renewal workflow
-- Debug and standard logging modes
-- ACME.sh deploy hook integration
-- Configuration file loading from multiple locations
-- Hotspot profile pattern matching
-- API connectivity after certificate changes
-
-### 🔧 Technical Validation
-- **RouterOS Version**: Tested on v7.19.4 (stable)
-- **API Methods**: PUT `/rest/file`, POST `/rest/certificate/import`, PATCH service endpoints
-- **Certificate Types**: ECC and RSA certificates
-- **File Formats**: PEM certificate and private key files
-- **Service Types**: www-ssl, api-ssl, hotspot profiles
-
-## 📊 Real-World Examples
-
-The documentation now includes sanitized real-world examples from actual deployments:
-
-### Debug Mode Output
-Shows complete certificate deployment workflow with:
-- API connection testing
-- Certificate upload and import process
-- Serial number and fingerprint verification
-- Service updates with connectivity testing
-- Final deployment verification
-
-### Standard Mode Output
-Clean, production-ready logging showing:
-- Step-by-step deployment progress
-- Certificate validation results
-- Service update confirmations
-- Final deployment status
-
-## 🛠️ Installation
-
-### Installation
 ```bash
-git clone https://github.com/your-repo/acme-deploy-mikrotik-api.git
-cd acme-deploy-mikrotik-api
+# 1. Copy script to ACME.sh deploy directory
 cp mikrotik.sh ~/.acme.sh/deploy/
 chmod +x ~/.acme.sh/deploy/mikrotik.sh
+
+# 2. Create configuration file
 cp examples/mikrotik.env.example ~/.acme.sh/mikrotik.env
-# Edit ~/.acme.sh/mikrotik.env with your RouterOS details
+chmod 600 ~/.acme.sh/mikrotik.env
+
+# 3. Configure RouterOS connection details
+nano ~/.acme.sh/mikrotik.env
 ```
 
-## ⚙️ Configuration
+## ⚙️ **Configuration**
 
 ### Required Settings
 ```bash
+# RouterOS Connection Details
 MIKROTIK_HOST=192.168.1.1
 MIKROTIK_USERNAME=admin
-MIKROTIK_PASSWORD=your-secure-password
+MIKROTIK_PASSWORD="your-secure-password"  # Use quotes for special characters
 ```
 
-### Optional Features
+### RouterOS User Setup
 ```bash
-MIKROTIK_UPDATE_WWW_SSL=true        # HTTPS web interface
-MIKROTIK_UPDATE_API_SSL=true        # HTTPS API access
-MIKROTIK_UPDATE_HOTSPOT_SSL=true    # Hotspot SSL certificates
-MIKROTIK_HOTSPOT_PROFILES="default" # Profile selection
-MIKROTIK_LOG_LEVEL=standard         # Logging level
+# Create dedicated ACME user (recommended)
+/user group add name=acme-deploy policy=read,write,api,rest-api
+/user add name=acme-user password=secure-password group=acme-deploy
 ```
 
-## 🔧 Usage
+## 🚀 **Usage**
 
-### Basic Deployment
 ```bash
+# Deploy certificate
 acme.sh --deploy -d example.com --deploy-hook mikrotik
-```
 
-### Debug Mode
-```bash
+# Debug mode
 MIKROTIK_LOG_LEVEL=debug acme.sh --deploy -d example.com --deploy-hook mikrotik
 ```
 
-### Custom Configuration
+## 🔍 **Troubleshooting Authentication**
+
+### 401 Unauthorized Error
+1. **Test with admin user first** to verify script functionality
+2. **Check user group permissions**: `/user print detail where name=your-username`
+3. **Verify REST API access**: `curl -k -u "username:password" https://router/rest/system/resource`
+4. **Create dedicated ACME user** with correct policies: `read,write,api,rest-api`
+
+### Password Issues
+- **Always use quotes** for passwords with special characters: `MIKROTIK_PASSWORD="pass!@#$%"`
+- **Test with simple password first** to verify user account works
+- **Check shell escaping** if using complex passwords
+
+## 📋 **Requirements**
+
+- **RouterOS**: v7.1+ (REST API support)
+- **ACME.sh**: Latest version
+- **System Tools**: `curl`, `base64`, `openssl` (optional for verification)
+- **User Permissions**: RouterOS user with `read,write,api,rest-api` policies
+
+## 🔄 **Migration from v1.0.0**
+
+### Removed Configuration Options
+- `MIKROTIK_CLEANUP_OLD` - No longer needed (cleanup functions removed)
+- `MIKROTIK_CERT_NAME_PREFIX` - No longer needed (automatic naming)
+
+### Updated User Policies
+Old (v1.0.0):
 ```bash
-MIKROTIK_CONFIG=/path/to/custom.env acme.sh --deploy -d example.com --deploy-hook mikrotik
+policy=api,read,write,policy,test,password,sensitive,romon
 ```
 
-## 🔒 Security Features
-
-- **HTTPS by Default** - Secure API connections on port 443
-- **Certificate Validation** - SSL verification with bypass option for testing
-- **Secure Credentials** - Environment file storage with restrictive permissions
-- **Input Validation** - Comprehensive parameter validation and sanitization
-- **No Credential Logging** - Sensitive information excluded from all output
-
-## 📚 Documentation
-
-### Complete Documentation Package
-- **README.md** - Comprehensive setup and usage guide
-- **CHANGELOG.md** - Detailed version history and changes
-- **TECHNICAL_SPECIFICATION.md** - Technical implementation details
-- **API_ENDPOINTS.md** - RouterOS API endpoint reference
-- **examples/** - Configuration templates and examples
-
-### Key Documentation Sections
-- Installation and setup instructions
-- RouterOS configuration guide
-- Migration from SSH-based methods
-- Troubleshooting common issues
-- Security best practices
-- Real-world usage examples
-
-## 🐛 Known Issues
-
-None - All identified issues during development and testing have been resolved.
-
-## 🔄 Migration from SSH Version
-
-### Old Method
+New (v1.1.0):
 ```bash
-export ROUTER_OS_HOST="192.168.1.1"
-export ROUTER_OS_USERNAME="admin"
-export ROUTER_OS_SSH_CMD="ssh -i /path/to/key"
+policy=read,write,api,rest-api
 ```
 
-### New Method
-```bash
-# mikrotik.env
-MIKROTIK_HOST=192.168.1.1
-MIKROTIK_USERNAME=admin
-MIKROTIK_PASSWORD=your-password
-```
+## 🛡️ **Security**
 
-### Benefits
-- No SSH key management required
-- Better error handling and logging
-- More secure API-based authentication
-- Support for multiple services
+- **HTTPS by Default** - Secure API connections
+- **Minimal User Privileges** - Reduced required RouterOS policies
+- **Secure Credential Storage** - Environment file with restrictive permissions
+- **Certificate Validation** - Automatic verification of uploaded certificates
 
-## 🎯 Next Steps
+## 🔗 **Comparison with SSH-based Methods**
 
-### For Users
-1. Install the script using the provided installer
-2. Configure your RouterOS connection details
-3. Test with a single domain deployment
-4. Enable additional services as needed
-5. Set up automated certificate renewal
+| Feature | REST API (This Script) | SSH/SCP Methods |
+|---------|------------------------|-----------------|
+| **Security** | HTTPS API authentication | SSH key management |
+| **Setup** | Simple user configuration | SSH key generation/deployment |
+| **Compatibility** | RouterOS v7.1+ | All RouterOS versions |
+| **Performance** | Fast API calls | File transfer overhead |
+| **Debugging** | Detailed API error messages | Limited SSH output |
+| **Maintenance** | No SSH key rotation needed | Regular key management |
 
-### For Developers
-1. Review the comprehensive technical documentation
-2. Test with your specific RouterOS configuration
-3. Report any issues or feature requests
-4. Contribute improvements via pull requests
+## 📝 **What's Next**
 
-## 📞 Support
-
-- **Documentation**: Check the troubleshooting section in README.md
-- **RouterOS API**: https://help.mikrotik.com/docs/spaces/ROS/pages/47579160/API
-- **Issues**: Open an issue on the project repository
-- **Community**: Join discussions in the project community
-
-## 🙏 Acknowledgments
-
-- Based on the original ACME.sh RouterOS deploy hook
-- Inspired by the FortiGate API deploy hook project structure
-- Thanks to the MikroTik community for RouterOS API documentation
-- Special thanks to beta testers who provided valuable feedback
+This release establishes a solid, streamlined foundation for MikroTik certificate deployment. Future releases will focus on:
+- Additional service support based on user feedback
+- Enhanced certificate validation features
+- Performance optimizations
 
 ---
 
-**Ready for Production** ✅  
-This release has been thoroughly tested and is ready for production deployment.
+**Full Changelog**: See [CHANGELOG.md](CHANGELOG.md) for complete version history.
+
+**Support**: Check the [troubleshooting section](README.md#troubleshooting) for common issues.
