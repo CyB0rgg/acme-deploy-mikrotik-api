@@ -31,8 +31,44 @@ This automated deployment hook ensures your MikroTik RouterOS devices are prepar
 - 🛡️ **Secure** - HTTPS by default with certificate validation
 - ⚙️ **Configurable** - Environment file configuration following established patterns
 - 🔧 **Service Management** - Updates www-ssl, api-ssl, and other services
+- 🔗 **Certificate Chain Support** - Automatically uploads intermediate CA certificates for complete trust chains
 - 📝 **Comprehensive Logging** - Debug, standard, and quiet log levels
 - ❌ **Error Handling** - Detailed error messages with troubleshooting hints
+
+## Certificate Chain Support
+
+This deploy hook now includes **automatic intermediate CA certificate upload** to ensure complete certificate trust chains on your MikroTik RouterOS device. This eliminates SSL/TLS validation issues that can occur when only leaf certificates are deployed.
+
+### How It Works
+
+1. **Automatic Detection** - When a fullchain certificate file is provided by ACME.sh, the script automatically extracts the immediate issuing CA certificate
+2. **Intelligent Upload** - The intermediate CA is uploaded as a separate certificate with proper naming (e.g., `zerossl-ecc-domain-secure-site-ca`)
+3. **Non-Blocking Operation** - If intermediate CA upload fails, the main certificate deployment continues normally
+4. **Proven Approach** - Uses the efficient "certificate + immediate intermediate CA only" method for optimal compatibility
+
+### Benefits
+
+- **Complete Trust Chains** - Eliminates the need for `--insecure` flags in client connections
+- **Better SSL/TLS Validation** - Clients can properly validate certificate chains without additional configuration
+- **Automatic Operation** - No additional configuration required - works transparently with existing setups
+- **Backward Compatible** - Existing deployments continue to work unchanged
+
+### Certificate Naming
+
+Certificates are now named using the YYYYMMDD format for consistency:
+- **Main Certificate**: `domain.com-20250818` (expires date)
+- **Intermediate CA**: `zerossl-ecc-domain-secure-site-ca` (Common Name only)
+
+### Example Output with Certificate Chain
+
+```
+[INFO] Step 1: Uploading certificate files...
+[INFO] Certificate uploaded successfully
+[INFO] Step 1.5: Checking for intermediate CA certificate...
+[INFO] Found intermediate CA: zerossl-ecc-domain-secure-site-ca
+[INFO] Uploading intermediate CA certificate...
+[INFO] Intermediate CA certificate uploaded successfully: zerossl-ecc-domain-secure-site-ca
+```
 
 ## Requirements
 
@@ -273,6 +309,7 @@ MIKROTIK_PASSWORD=your-password
 - Better error handling and logging
 - More secure API-based authentication
 - Support for multiple services
+- Automatic certificate chain support
 
 ## Troubleshooting
 
@@ -351,155 +388,47 @@ Debug mode shows:
 - API request/response details
 - Certificate encoding information
 - Service update attempts
+- Certificate chain extraction and upload details
 
 ### Example Output
 
-#### Debug Mode Output
+#### Standard Mode Output with Certificate Chain
 
 ```bash
-MIKROTIK_LOG_LEVEL=debug acme.sh --deploy -d example.com --deploy-hook mikrotik
+acme.sh --deploy -d kiroshi.group --deploy-hook mikrotik
 ```
 
 ```
-[INFO] Starting MikroTik certificate deployment for domain: example.com
-[DEBUG] Configuration loaded: Host=192.168.1.100, Port=443, User=admin
-[INFO] Testing API connection to 192.168.1.100:443...
-[WARN] Using insecure HTTPS connection (certificate validation disabled)
-[DEBUG] API Call: GET https://192.168.1.100:443/rest/system/resource
-[DEBUG] HTTP Status: 200
-[DEBUG] Response Body: {"architecture-name":"x86_64","board-name":"CHR","build-time":"2025-07-28 10:00:16","cpu":"Common","cpu-count":"1","cpu-frequency":"2099","cpu-load":"0","factory-software":"7.1","free-hdd-space":"17019092992","free-memory":"819691520","platform":"MikroTik","total-hdd-space":"17040297984","total-memory":"1073741824","uptime":"7h17m52s","version":"7.19.4 (stable)","write-sect-since-reboot":"15160","write-sect-total":"15160"}
-[INFO] API connection successful
-[DEBUG] RouterOS system info: {"version":"7.19.4 (stable)","platform":"MikroTik"}
-[INFO] Step 0: Checking current certificates...
-[DEBUG] API Call: GET https://192.168.1.100:443/rest/certificate?common-name=example.com
-[DEBUG] HTTP Status: 200
-[INFO] Current certificate for example.com: example.com-2025-11-12 (Valid, expires: 2025-11-13 00:59:59)
-[DEBUG] Certificate details: ID=*F, Name=example.com-2025-11-12, Status=Valid, Expires=2025-11-13 00:59:59
-[DEBUG] Using certificate file (not fullchain): /root/.acme.sh/example.com_ecc/example.com.cer
-[DEBUG] Final certificate name with expiry: example.com-2025-11-12
-[INFO] Step 1: Uploading certificate files...
-[INFO] Uploading certificate 'temp-example.com-1755176013'...
-[DEBUG] Certificate file: /root/.acme.sh/example.com_ecc/example.com.cer
-[DEBUG] Private key file: /root/.acme.sh/example.com_ecc/example.com.key
-[DEBUG] Certificate upload via RouterOS file system method
-[DEBUG] Uploading certificate file to RouterOS filesystem...
-[DEBUG] API Call: PUT https://192.168.1.100:443/rest/file
-[DEBUG] HTTP Status: 201
-[DEBUG] Response Body: {".id":"*802001E","contents":"-----BEGIN CERTIFICATE-----\r\nMIIEKjCCA7CgAwIBAgIQNPXVhCJeggtEn3d7N9OyKDAKBggqhkjOPQQDAzBLMQsw\r\n[... certificate content truncated ...]\r\n-----END CERTIFICATE-----\r\n","last-modified":"2025-08-14 13:53:32","name":"temp-example.com-1755176013.cer","size":"1530","type":".cer file"}
-[DEBUG] Certificate file uploaded successfully
-[DEBUG] Uploading private key file to RouterOS filesystem...
-[DEBUG] API Call: PUT https://192.168.1.100:443/rest/file
-[DEBUG] HTTP Status: 201
-[DEBUG] Response Body: {".id":"*802003C","contents":"-----BEGIN EC PRIVATE KEY-----\r\n[... private key content truncated ...]\r\n-----END EC PRIVATE KEY-----\r\n","last-modified":"2025-08-14 13:53:32","name":"temp-example.com-1755176013.key","size":"294","type":".key file"}
-[DEBUG] Private key file uploaded successfully
-[DEBUG] Extracting certificate details from file for verification...
-[DEBUG] Certificate file serial number: 34f5d584225e820b449f777b37d3b228
-[DEBUG] Certificate file fingerprint: 1471913213f2a7deb41cffaf3c474e1c8092e3973911f11bb95173686773e9e5
-[DEBUG] Importing certificate from uploaded files...
-[DEBUG] API Call: POST https://192.168.1.100:443/rest/certificate/import
-[DEBUG] HTTP Status: 200
-[DEBUG] Certificate import response: [{"certificates-imported":"1","decryption-failures":"0","files-imported":"0","keys-with-no-certificate":"0","private-keys-imported":"0"}]
-[DEBUG] API Call: POST https://192.168.1.100:443/rest/certificate/import
-[DEBUG] HTTP Status: 200
-[DEBUG] Private key import response: [{"certificates-imported":"0","decryption-failures":"0","files-imported":"1","keys-with-no-certificate":"0","private-keys-imported":"1"}]
-[DEBUG] Verifying certificate import by serial number and fingerprint...
-[DEBUG] API Call: GET https://192.168.1.100:443/rest/certificate?common-name=example.com
-[DEBUG] HTTP Status: 200
-[DEBUG] RouterOS certificate serial number: 34f5d584225e820b449f777b37d3b228
-[DEBUG] RouterOS certificate fingerprint: 1471913213f2a7deb41cffaf3c474e1c8092e3973911f11bb95173686773e9e5
-[INFO] Certificate import verification successful - serial and fingerprint match
-[DEBUG] File serial: 34f5d584225e820b449f777b37d3b228, RouterOS serial: 34f5d584225e820b449f777b37d3b228
-[DEBUG] File fingerprint: 1471913213f2a7deb41cffaf3c474e1c8092e3973911f11bb95173686773e9e5, RouterOS fingerprint: 1471913213f2a7deb41cffaf3c474e1c8092e3973911f11bb95173686773e9e5
-[INFO] Certificate uploaded successfully
-[INFO] Step 2: Finding certificate for service updates...
-[DEBUG] API Call: GET https://192.168.1.100:443/rest/certificate?common-name=example.com
-[DEBUG] HTTP Status: 200
-[DEBUG] Found certificate with ID: *F
-[INFO] Step 3: Updating services...
-[DEBUG] Using certificate name for service updates: example.com-2025-11-12
-[INFO] Updating www-ssl service certificate...
-[DEBUG] API Call: GET https://192.168.1.100:443/rest/ip/service
-[DEBUG] HTTP Status: 200
-[DEBUG] Found service www-ssl with ID: *6
-[DEBUG] API Call: PATCH https://192.168.1.100:443/rest/ip/service/*6
-[DEBUG] HTTP Status: 200
-[DEBUG] Response Body: {".id":"*6","address":"","certificate":"example.com-2025-11-12","disabled":"false","dynamic":"false","invalid":"false","max-sessions":"20","name":"www-ssl","port":"443","proto":"tcp","tls-version":"any","vrf":"main"}
-[INFO] www-ssl service updated successfully
-[DEBUG] Testing API connectivity after certificate change...
-[DEBUG] API Call: GET https://192.168.1.100:443/rest/system/resource
-[DEBUG] HTTP Status: 200
-[INFO] API connectivity confirmed after certificate change
-[INFO] Updating api-ssl service certificate...
-[DEBUG] Found service api-ssl with ID: *9
-[DEBUG] API Call: PATCH https://192.168.1.100:443/rest/ip/service/*9
-[DEBUG] HTTP Status: 200
-[INFO] api-ssl service updated successfully
-[INFO] Updating hotspot SSL certificates...
-[DEBUG] Listing hotspot profiles...
-[DEBUG] API Call: GET https://192.168.1.100:443/rest/ip/hotspot/profile
-[DEBUG] HTTP Status: 200
-[INFO] Updating hotspot profile 'default' SSL certificate...
-[DEBUG] Found hotspot profile default with ID: *2
-[DEBUG] API Call: PATCH https://192.168.1.100:443/rest/ip/hotspot/profile/*2
-[DEBUG] HTTP Status: 200
-[INFO] Hotspot profile 'default' SSL certificate updated successfully
-[INFO] Updated SSL certificates for 1 hotspot profile(s)
-[INFO] Step 4: Renaming certificate to final name...
-[DEBUG] Renaming certificate ID *F to: example.com-2025-11-12
-[DEBUG] API Call: PATCH https://192.168.1.100:443/rest/certificate/*F
-[DEBUG] HTTP Status: 200
-[INFO] Certificate renamed to: example.com-2025-11-12
-[INFO] Step 5: Verifying service certificate assignments...
-[DEBUG] Verifying www-ssl service is using certificate: example.com-2025-11-12
-[DEBUG] www-ssl service correctly using certificate: example.com-2025-11-12
-[DEBUG] Verifying api-ssl service is using certificate: example.com-2025-11-12
-[DEBUG] api-ssl service correctly using certificate: example.com-2025-11-12
-[INFO] Step 6: Verifying final certificate deployment...
-[DEBUG] API Call: GET https://192.168.1.100:443/rest/certificate?common-name=example.com
-[DEBUG] HTTP Status: 200
-[INFO] New certificate deployed: example.com-2025-11-12 (Valid, expires: 2025-11-13 00:59:59)
-[DEBUG] Final certificate details: ID=*F, Name=example.com-2025-11-12, Status=Valid, Expires=2025-11-13 00:59:59
-[INFO] Certificate deployment completed successfully!
-[INFO] 3 service(s) updated with certificate: example.com-2025-11-12
-[Thu Aug 14 13:53:36 BST 2025] Success
-```
-
-#### Standard Mode Output
-
-```bash
-acme.sh --deploy -d example.com --deploy-hook mikrotik
-```
-
-```
-[INFO] Starting MikroTik certificate deployment for domain: example.com
-[INFO] Testing API connection to 192.168.1.100:443...
-[WARN] Using insecure HTTPS connection (certificate validation disabled)
+[INFO] Starting MikroTik certificate deployment for domain: kiroshi.group
+[INFO] Testing API connection to mikrotik.kiroshi.group:443...
 [INFO] API connection successful
 [INFO] Step 0: Checking current certificates...
-[INFO] Current certificate for example.com: example.com-2025-11-12 (Valid, expires: 2025-11-13 00:59:59)
+[INFO] Current certificate for kiroshi.group: kiroshi.group.cer_0 (Valid, expires: 2025-11-13 00:59:59)
 [INFO] Step 1: Uploading certificate files...
-[INFO] Uploading certificate 'temp-example.com-1755177316'...
+[INFO] Uploading certificate 'temp-kiroshi.group-1755501335'...
 [INFO] Certificate import verification successful - serial and fingerprint match
 [INFO] Certificate uploaded successfully
+[INFO] Step 1.5: Checking for intermediate CA certificate...
+[INFO] Found intermediate CA: zerossl-ecc-domain-secure-site-ca
+[INFO] Uploading intermediate CA certificate...
+[INFO] Intermediate CA certificate uploaded successfully: zerossl-ecc-domain-secure-site-ca
 [INFO] Step 2: Finding certificate for service updates...
 [INFO] Step 3: Updating services...
 [INFO] Updating www-ssl service certificate...
 [INFO] www-ssl service updated successfully
 [INFO] API connectivity confirmed after certificate change
-[INFO] Updating api-ssl service certificate...
-[INFO] api-ssl service updated successfully
 [INFO] Updating hotspot SSL certificates...
-[INFO] Updating hotspot profile 'default' SSL certificate...
-[INFO] Hotspot profile 'default' SSL certificate updated successfully
+[INFO] Updating hotspot profile 'hsprof1' SSL certificate...
+[INFO] Hotspot profile 'hsprof1' SSL certificate updated successfully
 [INFO] Updated SSL certificates for 1 hotspot profile(s)
 [INFO] Step 4: Renaming certificate to final name...
-[INFO] Certificate renamed to: example.com-2025-11-12
+[INFO] Certificate renamed to: kiroshi.group-20251112
 [INFO] Step 5: Verifying service certificate assignments...
 [INFO] Step 6: Verifying final certificate deployment...
-[INFO] New certificate deployed: example.com-2025-11-12 (Valid, expires: 2025-11-13 00:59:59)
+[INFO] New certificate deployed: kiroshi.group-20251112 (Valid, expires: 2025-11-13 00:59:59)
 [INFO] Certificate deployment completed successfully!
-[INFO] 3 service(s) updated with certificate: example.com-2025-11-12
-[Thu Aug 14 14:15:19 BST 2025] Success
+[INFO] 2 service(s) updated with certificate: kiroshi.group-20251112
+[Mon Aug 18 08:15:38 BST 2025] Success
 ```
 
 ### Testing Connection
@@ -530,13 +459,15 @@ curl -k -u "admin:password" "https://192.168.1.1/rest/system/resource"
 ### 4. Certificate Security
 - Certificates are automatically validated before upload
 - Certificate/key matching is verified
+- Intermediate CA certificates are automatically included for complete trust chains
 
 ## API Endpoints Used
 
 | Operation | Method | Endpoint | Purpose |
 |-----------|--------|----------|---------|
 | Test Connection | GET | `/rest/system/resource` | Verify API access |
-| Import Certificate | POST | `/rest/certificate/import` | Upload cert/key |
+| Upload Files | PUT | `/rest/file` | Upload cert/key/CA files |
+| Import Certificate | POST | `/rest/certificate/import` | Import cert/key/CA |
 | List Certificates | GET | `/rest/certificate` | Find existing certs |
 | Update WWW-SSL | PATCH | `/rest/ip/service/www-ssl` | Configure HTTPS |
 | Update API-SSL | PATCH | `/rest/ip/service/api-ssl` | Configure API HTTPS |
