@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-08-18
+
+**Copyright (c) CyB0rgg <dev@bluco.re>**
+
+### Added
+- **🔗 Certificate Chain Support** - Automatic intermediate CA certificate upload for complete trust chains
+- **Intermediate CA Extraction** - `extract_immediate_issuing_ca()` function to extract immediate issuing CA from fullchain files
+- **Certificate Common Name Extraction** - `get_cert_common_name()` function for proper certificate naming
+- **Step 1.5: Intermediate CA Upload** - New deployment step that uploads intermediate CA certificates after main certificate
+- **Proven Approach** - Uses efficient "certificate + immediate intermediate CA only" method
+- **Enhanced Certificate Naming** - Updated to YYYYMMDD format (e.g., `domain.com-20250818`) for consistency
+- **Comprehensive Chain Documentation** - Detailed documentation of certificate chain features and benefits
+
+### Changed
+- **Certificate Naming Format** - Changed from YYYY-MM-DD to YYYYMMDD format for consistency with FortiGate approach
+- **Enhanced Deployment Process** - Added Step 1.5 for intermediate CA upload between main certificate and service updates
+- **Improved SSL/TLS Validation** - Complete certificate chains eliminate need for `--insecure` flags in client connections
+- **Updated Example Output** - Documentation now includes certificate chain upload examples
+
+### Fixed
+- **SSL/TLS Validation Issues** - Complete certificate chains resolve validation problems that occurred with leaf-only certificates
+- **Certificate Trust Path** - Intermediate CA upload ensures proper certificate trust path completion
+
+### Technical Details
+- **Non-Blocking Operation** - Intermediate CA upload failure doesn't prevent main certificate deployment
+- **Automatic Detection** - Detects and extracts intermediate CA from ACME.sh fullchain files
+- **Intelligent Naming** - CA certificates named with Common Name only (e.g., `zerossl-ecc-domain-secure-site-ca`)
+- **macOS/BSD Compatibility** - Certificate extraction works across different awk implementations
+- **Backward Compatibility** - Existing deployments continue to work unchanged
+
+### Tested Features
+- ✅ Intermediate CA extraction from fullchain files
+- ✅ Automatic intermediate CA certificate upload
+- ✅ Certificate chain validation with real ACME.sh deployment
+- ✅ FortiGate-compatible certificate naming (YYYYMMDD format)
+- ✅ Complete SSL/TLS trust chain validation
+- ✅ Non-blocking intermediate CA upload (main deployment continues on failure)
+- ✅ Backward compatibility with existing configurations
+
 ## [1.1.0] - 2025-08-14
 
 **Copyright (c) CyB0rgg <dev@bluco.re>**

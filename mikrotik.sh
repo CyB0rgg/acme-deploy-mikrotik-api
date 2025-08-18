@@ -439,6 +439,99 @@ get_certificate_details() {
   fi
 }
 
+# Extract Common Name from certificate
+get_cert_common_name() {
+  local cert_file="$1"
+  if command -v openssl >/dev/null 2>&1; then
+    local cn=$(openssl x509 -in "$cert_file" -noout -subject 2>/dev/null | \
+      sed -n 's/.*CN[[:space:]]*=[[:space:]]*\([^,]*\).*/\1/p' | \
+      tr ' ' '-' | tr '[:upper:]' '[:lower:]' | \
+      sed 's/[^a-zA-Z0-9.-]//g')
+    
+    if [ -n "$cn" ]; then
+      echo "$cn"
+    else
+      echo "cert-$(date +%s)"
+    fi
+  else
+    echo "cert-$(date +%s)"
+  fi
+}
+
+# Extract immediate issuing CA (the certificate directly above the leaf)
+extract_immediate_issuing_ca() {
+  local fullchain_file="$1"
+  local temp_dir=$(mktemp -d)
+  
+  _debug "Extracting immediate issuing CA from: $fullchain_file"
+  
+  # Copy fullchain to temp directory
+  cp "$fullchain_file" "$temp_dir/fullchain.pem"
+  cd "$temp_dir"
+  
+  # Split certificates using awk
+  awk '
+  /-----BEGIN CERTIFICATE-----/ {
+    cert_num++;
+    in_cert = 1;
+    cert_content = $0 "\n";
+    next;
+  }
+  in_cert {
+    cert_content = cert_content $0 "\n";
+    if (/-----END CERTIFICATE-----/) {
+      filename = "cert_" sprintf("%02d", cert_num);
+      print cert_content > filename;
+      close(filename);
+      in_cert = 0;
+      cert_content = "";
+    }
+  }
+  ' "fullchain.pem"
+  
+  # Count certificates
+  local cert_files=(cert_*)
+  local cert_count=${#cert_files[@]}
+  
+  _debug "Found $cert_count certificate(s) in fullchain"
+  
+  if [ "$cert_count" -gt 1 ]; then
+    # The immediate issuing CA is the second certificate (cert_02)
+    local issuing_ca_file="cert_02"
+    if [ -f "$issuing_ca_file" ] && [ -s "$issuing_ca_file" ]; then
+      # Copy to a permanent location
+      local perm_file="$temp_dir/immediate_issuing_ca.pem"
+      cp "$issuing_ca_file" "$perm_file"
+      
+      # Get the Common Name for this CA
+      local ca_common_name
+      if command -v openssl >/dev/null 2>&1; then
+        ca_common_name=$(openssl x509 -in "$perm_file" -noout -subject 2>/dev/null | \
+          sed -n 's/.*CN[[:space:]]*=[[:space:]]*\([^,]*\).*/\1/p' | \
+          tr ' ' '-' | tr '[:upper:]' '[:lower:]' | \
+          sed 's/[^a-zA-Z0-9.-]//g')
+        
+        if [ -z "$ca_common_name" ]; then
+          ca_common_name="intermediate-ca-$(date +%s)"
+        fi
+      else
+        ca_common_name="intermediate-ca-$(date +%s)"
+      fi
+      
+      _debug "Immediate issuing CA found with CN: $ca_common_name"
+      
+      cd - >/dev/null
+      echo "$perm_file|$ca_common_name|$temp_dir"
+      return 0
+    fi
+  fi
+  
+  cd - >/dev/null
+  rm -rf "$temp_dir"
+  _debug "No immediate issuing CA found"
+  return 1
+}
+
 # Verify certificate import by checking certificate details
 verify_certificate_import() {
   local cert_name="$1"
@@ -832,8 +925,8 @@ Config file search locations:
   if command -v openssl >/dev/null 2>&1 && [ -f "$cert_to_upload" ]; then
     cert_expiry=$(openssl x509 -in "$cert_to_upload" -noout -enddate 2>/dev/null | cut -d= -f2)
     if [ -n "$cert_expiry" ]; then
-      # Convert to YYYY-MM-DD format
-      cert_expiry=$(date -d "$cert_expiry" "+%Y-%m-%d" 2>/dev/null || echo "")
+      # Convert to YYYYMMDD format (matching FortiGate approach)
+      cert_expiry=$(date -d "$cert_expiry" "+%Y%m%d" 2>/dev/null || echo "")
     fi
   fi
   
@@ -846,6 +939,86 @@ Config file search locations:
   _info "Step 1: Uploading certificate files..."
   if ! upload_certificate "$temp_cert_name" "$cert_to_upload" "$key_file"; then
     _err_exit "Certificate upload failed. Cannot proceed with service updates."
+  fi
+  
+  # Step 1.5: Upload intermediate CA certificate if available (FortiGate approach)
+  _info "Step 1.5: Checking for intermediate CA certificate..."
+  local ca_result=""
+  if [ -f "$fullchain_file" ]; then
+    local ca_info
+    if ca_info=$(extract_immediate_issuing_ca "$fullchain_file"); then
+      local ca_file=$(echo "$ca_info" | cut -d'|' -f1)
+      local ca_common_name=$(echo "$ca_info" | cut -d'|' -f2)
+      local ca_temp_dir=$(echo "$ca_info" | cut -d'|' -f3)
+      
+      _info "Found intermediate CA: $ca_common_name"
+      _debug "CA file: $ca_file"
+      
+      # Generate CA certificate name using only Common Name (no date suffix for CA certs)
+      local ca_cert_name="${ca_common_name}"
+      _debug "CA certificate name: $ca_cert_name"
+      
+      # Upload intermediate CA certificate (no private key needed for CA)
+      _info "Uploading intermediate CA certificate..."
+      local ca_base_url
+      ca_base_url=$(get_base_url)
+      
+      # Upload CA certificate file to RouterOS files
+      _debug "Uploading CA certificate file to RouterOS filesystem..."
+      local ca_contents
+      ca_contents=$(cat "$ca_file" | sed 's/$/\\r\\n/' | tr -d '\n')
+      local ca_filename="${ca_cert_name}.cer"
+      
+      local ca_json_payload
+      ca_json_payload=$(printf '{"name":"%s","contents":"%s"}' "$ca_filename" "$ca_contents")
+      
+      local ca_response
+      ca_response=$(api_call "PUT" "/file" "$ca_json_payload")
+      local ca_upload_result=$?
+      
+      if [ $ca_upload_result -eq 2 ]; then
+        # File exists, try to remove it first
+        _debug "CA certificate file exists, removing old file..."
+        api_call "DELETE" "/file/$ca_filename" "" >/dev/null 2>&1 || true
+        
+        # Try upload again
+        if ! ca_response=$(api_call "PUT" "/file" "$ca_json_payload"); then
+          _warn "Failed to upload CA certificate file to RouterOS filesystem after removing old file"
+          ca_result="failed"
+        else
+          _debug "CA certificate file uploaded successfully"
+        fi
+      elif [ $ca_upload_result -ne 0 ]; then
+        _warn "Failed to upload CA certificate file to RouterOS filesystem"
+        ca_result="failed"
+      else
+        _debug "CA certificate file uploaded successfully"
+      fi
+      
+      # Import CA certificate if upload succeeded
+      if [ "$ca_result" != "failed" ]; then
+        _debug "Importing CA certificate from uploaded file..."
+        local ca_import_payload
+        ca_import_payload=$(printf '{"file-name":"%s","name":"%s","passphrase":""}' "$ca_filename" "$ca_cert_name")
+        
+        local ca_import_response
+        if ! ca_import_response=$(api_call "POST" "/certificate/import" "$ca_import_payload"); then
+          _warn "Failed to import CA certificate file"
+          ca_result="failed"
+        else
+          _info "Intermediate CA certificate uploaded successfully: $ca_cert_name"
+          _debug "CA import response: $ca_import_response"
+          ca_result="success"
+        fi
+      fi
+      
+      # Clean up temporary directory
+      rm -rf "$ca_temp_dir" 2>/dev/null || true
+    else
+      _debug "No intermediate CA found in fullchain file"
+    fi
+  else
+    _debug "No fullchain file provided, skipping intermediate CA upload"
   fi
   
   # Step 2: Find the certificate (use existing one since verification passed)

@@ -1,140 +1,132 @@
-# MikroTik RouterOS API Deploy Hook v1.1.0
+# MikroTik RouterOS API Deploy Hook v1.2.0
 
-**Release Date**: August 14, 2025  
+**Release Date**: August 18, 2025  
 **Copyright**: (c) CyB0rgg <dev@bluco.re>
 
-## 🎯 What's New in v1.1.0
+## 🎯 What's New in v1.2.0
 
-This release focuses on **streamlining the authentication experience** and **removing unnecessary complexity** while maintaining all core certificate deployment functionality.
+This release introduces **automatic certificate chain support** to eliminate SSL/TLS validation issues and provide complete trust chains on your MikroTik RouterOS devices.
 
-### 🔐 **Enhanced Authentication**
-- **Simplified User Policies** - Reduced required RouterOS policies to minimal set: `read,write,api,rest-api`
-- **Fixed Special Character Passwords** - Resolved authentication issues with passwords containing `!@#$%` and other special characters
-- **Comprehensive Troubleshooting** - Added step-by-step authentication debugging guide
+### 🔗 **Certificate Chain Support**
+- **Automatic Intermediate CA Upload** - Extracts and uploads intermediate CA certificates from ACME.sh fullchain files
+- **Complete Trust Chains** - Eliminates the need for `--insecure` flags in client connections
+- **Proven Approach** - Uses efficient "certificate + immediate intermediate CA only" method
+- **Non-Blocking Operation** - Main certificate deployment continues even if intermediate CA upload fails
 
-### 🧹 **Streamlined Configuration**
-- **Removed Certificate Cleanup** - Eliminated unnecessary cleanup functions and configuration options
-- **Simplified Certificate Naming** - Removed redundant `MIKROTIK_CERT_NAME_PREFIX` configuration
-- **Cleaner Script Architecture** - Focused on core certificate deployment functionality
+### 📝 **Enhanced Certificate Naming**
+- **Updated Format** - Changed certificate naming from YYYY-MM-DD to YYYYMMDD format (e.g., `domain.com-20250818`)
+- **Consistent Naming** - Main certificates use expiry date, intermediate CAs use Common Name only
+- **Consistent Naming** - Naming convention follows established certificate management practices
 
-### 📚 **Improved Documentation**
-- **User Permission Guide** - Complete instructions for creating dedicated ACME users
-- **Authentication Troubleshooting** - Detailed guide for resolving 401 Unauthorized errors
-- **Password Best Practices** - Clear guidance for handling special characters in passwords
+### 🔧 **New Functions**
+- **`extract_immediate_issuing_ca()`** - Extracts immediate issuing CA from fullchain certificate files
+- **`get_cert_common_name()`** - Extracts Common Name from certificates for proper naming
+- **Step 1.5: Intermediate CA Upload** - New deployment step between certificate upload and service updates
 
-## 🚀 **Key Features**
+## 🚀 **Key Benefits**
 
-- **RouterOS v7.x REST API Integration** - Modern API-based certificate deployment
-- **Automated Certificate Management** - Upload, import, verification, and service updates
-- **Primary www-ssl Service Support** - HTTPS web interface certificates (enabled by default)
-- **Optional Services** - api-ssl and hotspot SSL support (configurable)
-- **Certificate Verification** - Serial number and SHA256 fingerprint validation
-- **Smart Certificate Naming** - Automatic domain-expiry format (e.g., `example.com-2025-11-12`)
-- **Comprehensive Logging** - Debug, standard, and quiet modes
+- **Better SSL/TLS Validation** - Clients can properly validate certificate chains without additional configuration
+- **Eliminates Insecure Connections** - No more need for `--insecure` flags when connecting to RouterOS
+- **Automatic Operation** - Works transparently with existing ACME.sh deployments
+- **Backward Compatible** - Existing configurations continue to work unchanged
 
 ## 🔧 **Installation**
 
 ```bash
-# 1. Copy script to ACME.sh deploy directory
+# 1. Copy updated script to ACME.sh deploy directory
 cp mikrotik.sh ~/.acme.sh/deploy/
 chmod +x ~/.acme.sh/deploy/mikrotik.sh
 
-# 2. Create configuration file
-cp examples/mikrotik.env.example ~/.acme.sh/mikrotik.env
-chmod 600 ~/.acme.sh/mikrotik.env
-
-# 3. Configure RouterOS connection details
-nano ~/.acme.sh/mikrotik.env
-```
-
-## ⚙️ **Configuration**
-
-### Required Settings
-```bash
-# RouterOS Connection Details
-MIKROTIK_HOST=192.168.1.1
-MIKROTIK_USERNAME=admin
-MIKROTIK_PASSWORD="your-secure-password"  # Use quotes for special characters
-```
-
-### RouterOS User Setup
-```bash
-# Create dedicated ACME user (recommended)
-/user group add name=acme-deploy policy=read,write,api,rest-api
-/user add name=acme-user password=secure-password group=acme-deploy
+# 2. No configuration changes needed - certificate chain support is automatic
 ```
 
 ## 🚀 **Usage**
 
+Certificate chain support is **completely automatic**. No configuration changes are required:
+
 ```bash
-# Deploy certificate
+# Deploy certificate (now includes automatic intermediate CA upload)
 acme.sh --deploy -d example.com --deploy-hook mikrotik
 
-# Debug mode
+# Debug mode shows certificate chain extraction details
 MIKROTIK_LOG_LEVEL=debug acme.sh --deploy -d example.com --deploy-hook mikrotik
 ```
 
-## 🔍 **Troubleshooting Authentication**
+## 📋 **Example Output**
 
-### 401 Unauthorized Error
-1. **Test with admin user first** to verify script functionality
-2. **Check user group permissions**: `/user print detail where name=your-username`
-3. **Verify REST API access**: `curl -k -u "username:password" https://router/rest/system/resource`
-4. **Create dedicated ACME user** with correct policies: `read,write,api,rest-api`
+### New Certificate Chain Upload Process
+```
+[INFO] Step 1: Uploading certificate files...
+[INFO] Certificate uploaded successfully
+[INFO] Step 1.5: Checking for intermediate CA certificate...
+[INFO] Found intermediate CA: zerossl-ecc-domain-secure-site-ca
+[INFO] Uploading intermediate CA certificate...
+[INFO] Intermediate CA certificate uploaded successfully: zerossl-ecc-domain-secure-site-ca
+[INFO] Step 2: Finding certificate for service updates...
+```
 
-### Password Issues
-- **Always use quotes** for passwords with special characters: `MIKROTIK_PASSWORD="pass!@#$%"`
-- **Test with simple password first** to verify user account works
-- **Check shell escaping** if using complex passwords
+### Certificate Naming Examples
+- **Main Certificate**: `kiroshi.group-20251112` (domain + expiry date in YYYYMMDD format)
+- **Intermediate CA**: `zerossl-ecc-domain-secure-site-ca` (Common Name only)
+
+## 🔍 **Technical Details**
+
+### Certificate Chain Extraction
+- **Automatic Detection** - Detects fullchain files provided by ACME.sh
+- **Immediate CA Only** - Extracts only the immediate issuing CA (not the full chain)
+- **macOS/BSD Compatible** - Works with different awk implementations
+- **Error Resilient** - Gracefully handles missing or malformed chain files
+
+### Certificate Upload Process
+1. **Step 1**: Upload main certificate and private key
+2. **Step 1.5**: Extract and upload intermediate CA certificate (NEW)
+3. **Step 2**: Find certificates for service updates
+4. **Step 3**: Update RouterOS services
+5. **Step 4**: Rename certificates to final names
+6. **Step 5-6**: Verify deployment
 
 ## 📋 **Requirements**
 
 - **RouterOS**: v7.1+ (REST API support)
-- **ACME.sh**: Latest version
-- **System Tools**: `curl`, `base64`, `openssl` (optional for verification)
+- **ACME.sh**: Latest version with fullchain file support
+- **System Tools**: `curl`, `base64`, `openssl`, `awk`
 - **User Permissions**: RouterOS user with `read,write,api,rest-api` policies
 
-## 🔄 **Migration from v1.0.0**
+## 🔄 **Migration from v1.1.0**
 
-### Removed Configuration Options
-- `MIKROTIK_CLEANUP_OLD` - No longer needed (cleanup functions removed)
-- `MIKROTIK_CERT_NAME_PREFIX` - No longer needed (automatic naming)
+### Automatic Migration
+- **No Configuration Changes** - Certificate chain support is automatic
+- **Backward Compatible** - All existing configurations continue to work
+- **Enhanced Functionality** - Existing deployments now get certificate chain support
 
-### Updated User Policies
-Old (v1.0.0):
-```bash
-policy=api,read,write,policy,test,password,sensitive,romon
-```
+### Certificate Naming Changes
+- **Old Format**: `domain.com-2025-11-12` (YYYY-MM-DD)
+- **New Format**: `domain.com-20251112` (YYYYMMDD)
+- **Impact**: New certificates use updated format, existing certificates remain unchanged
 
-New (v1.1.0):
-```bash
-policy=read,write,api,rest-api
-```
+## 🛡️ **Security Enhancements**
 
-## 🛡️ **Security**
+- **Complete Trust Chains** - Proper certificate validation without security compromises
+- **No Insecure Flags** - Eliminates need for `--insecure` connections
+- **Validated Certificates** - All uploaded certificates are verified before deployment
+- **Non-Intrusive** - Certificate chain upload doesn't affect main deployment if it fails
 
-- **HTTPS by Default** - Secure API connections
-- **Minimal User Privileges** - Reduced required RouterOS policies
-- **Secure Credential Storage** - Environment file with restrictive permissions
-- **Certificate Validation** - Automatic verification of uploaded certificates
+## 🔗 **Certificate Chain Benefits**
 
-## 🔗 **Comparison with SSH-based Methods**
-
-| Feature | REST API (This Script) | SSH/SCP Methods |
-|---------|------------------------|-----------------|
-| **Security** | HTTPS API authentication | SSH key management |
-| **Setup** | Simple user configuration | SSH key generation/deployment |
-| **Compatibility** | RouterOS v7.1+ | All RouterOS versions |
-| **Performance** | Fast API calls | File transfer overhead |
-| **Debugging** | Detailed API error messages | Limited SSH output |
-| **Maintenance** | No SSH key rotation needed | Regular key management |
+| Aspect | Without Chain (v1.1.0) | With Chain (v1.2.0) |
+|--------|-------------------------|----------------------|
+| **Client Validation** | May require `--insecure` | Full validation works |
+| **Trust Path** | Incomplete | Complete |
+| **Browser Warnings** | Possible certificate warnings | Clean certificate validation |
+| **API Connections** | May need insecure flags | Secure connections work |
+| **Certificate Store** | Leaf certificate only | Leaf + intermediate CA |
 
 ## 📝 **What's Next**
 
-This release establishes a solid, streamlined foundation for MikroTik certificate deployment. Future releases will focus on:
-- Additional service support based on user feedback
-- Enhanced certificate validation features
-- Performance optimizations
+This release establishes complete certificate chain support for MikroTik deployments. Future releases will focus on:
+- Certificate chain validation and monitoring
+- Enhanced certificate lifecycle management
+- Multi-CA environment support
 
 ---
 
