@@ -1,3 +1,27 @@
+# MikroTik RouterOS API Deploy Hook v1.2.1
+
+**Release Date**: November 17, 2026  
+**Copyright**: (c) CyB0rgg <dev@bluco.re>
+
+## 🐛 Bug-fix release — the wrong certificate was being bound on renewal
+
+If you run v1.2.0 or earlier, **every renewal after the first one bound the previous certificate** to your services and renamed it to the new `domain-YYYYMMDD` name, while the freshly imported certificate was left as `temp-<domain>-<timestamp>.cer_0`. The hook reported success, so RouterOS quietly kept serving an expired certificate. Upgrade and run one deployment (`acme.sh --deploy -d <domain> --deploy-hook mikrotik`) to repair the bindings; the old certificate is parked as `<name>-superseded-<epoch>` and can be removed.
+
+### Fixed
+- **Step 2 selected the certificate by common-name and took the first match** — now the imported certificate is located by its **serial number** (`find_certificate_by_serial`).
+- **Import verification could never fail** — a serial mismatch was logged and ignored; a missing serial now aborts the deployment before any service is touched.
+- **Final rename blocked by the previous certificate** — a certificate already holding the target name is renamed to `<name>-superseded-<epoch>` first (`free_certificate_name`).
+- **Spurious "service using certificate 'none'" warning** — the service check read the first `certificate` field of the whole `/ip/service` response (typically the dynamic `reverse-proxy` entry) instead of the requested service's object (`service_certificate_from_response`).
+- **Step 6 summary** now reports the certificate carrying the final name only.
+
+### Added
+- `tests/test_certificate_selection.sh` — 13 unit tests for the selection, rename-collision and service-check helpers; runs without a router.
+
+### Verified
+- RouterOS 7.23.8 (long-term), ZeroSSL ECC certificate via acme.sh 3.1.7, two consecutive live deployments (repair run + idempotent re-run).
+
+---
+
 # MikroTik RouterOS API Deploy Hook v1.2.0
 
 **Release Date**: August 18, 2025  
