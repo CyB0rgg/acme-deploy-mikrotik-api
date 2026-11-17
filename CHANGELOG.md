@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-11-17
+
+**Copyright (c) CyB0rgg <dev@bluco.re>**
+
+### Fixed
+- **Wrong certificate bound on renewal** - Step 2 looked the certificate up by common-name and took the first result, which on every renewal after the first is the *previous* certificate. The old certificate was bound to www-ssl/hotspot and renamed to the new `domain-YYYYMMDD` name while the freshly imported one was left as `temp-<domain>-<ts>.cer_0`, so services kept serving an expired certificate although the hook reported success. The imported certificate is now located by its serial number (`find_certificate_by_serial`).
+- **Import verification could not fail** - a serial/fingerprint mismatch after import was logged and ignored ("continue anyway"). A missing serial now aborts the deployment.
+- **Final rename blocked by the previous certificate** - if another certificate already holds the target `domain-YYYYMMDD` name it is renamed to `<name>-superseded-<epoch>` first (`free_certificate_name`).
+
+### Added
+- `tests/test_certificate_selection.sh` - unit tests for the selection and rename-collision helpers (no router needed).
+
 ## [1.2.0] - 2025-08-18
 
 **Copyright (c) CyB0rgg <dev@bluco.re>**

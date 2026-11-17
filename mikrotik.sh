@@ -5,7 +5,7 @@
 #
 # Copyright (c) CyB0rgg <dev@bluco.re>
 # License: MIT
-# Version: 1.1.0
+# Version: 1.2.1
 
 # Exit on any error
 set -e
@@ -385,42 +385,73 @@ upload_certificate_files() {
   
   _debug "Private key import response: $key_import_response"
   
-  # Step 5: Verify certificate import by checking if RouterOS has certificate with matching serial and fingerprint
-  if [ -n "$file_serial" ] && [ -n "$file_fingerprint" ]; then
-    _debug "Verifying certificate import by serial number and fingerprint..."
-    
-    # Use targeted API call to find certificate with specific common name (use domain, not temp name)
-    local domain_cert_response
-    domain_cert_response=$(api_call "GET" "/certificate?common-name=$domain" "")
-    
-    if [ -n "$domain_cert_response" ] && [ "$domain_cert_response" != "[]" ]; then
-      # Extract serial number and fingerprint from RouterOS certificate
-      local routeros_serial routeros_fingerprint
-      routeros_serial=$(echo "$domain_cert_response" | grep -o '"serial-number":"[^"]*"' | cut -d'"' -f4 | tr -d ':' | tr '[:upper:]' '[:lower:]')
-      routeros_fingerprint=$(echo "$domain_cert_response" | grep -o '"fingerprint":"[^"]*"' | cut -d'"' -f4 | tr -d ':' | tr '[:upper:]' '[:lower:]')
-      
-      _debug "RouterOS certificate serial number: $routeros_serial"
-      _debug "RouterOS certificate fingerprint: $routeros_fingerprint"
-      
-      if [ "$file_serial" = "$routeros_serial" ] && [ "$file_fingerprint" = "$routeros_fingerprint" ]; then
-        _info "Certificate import verification successful - serial and fingerprint match"
-        _debug "File serial: $file_serial, RouterOS serial: $routeros_serial"
-        _debug "File fingerprint: $file_fingerprint, RouterOS fingerprint: $routeros_fingerprint"
-        return 0
-      else
-        _warn "Certificate import verification failed - serial or fingerprint mismatch"
-        _debug "File serial: $file_serial, RouterOS serial: $routeros_serial"
-        _debug "File fingerprint: $file_fingerprint, RouterOS fingerprint: $routeros_fingerprint"
-        return 0  # Continue anyway as certificate may still be imported
-      fi
-    else
-      _warn "Certificate verification failed - no certificate found for domain: $domain"
-      return 0  # Continue anyway
-    fi
-  else
-    _warn "Cannot verify certificate import - missing serial number or fingerprint"
-    return 0  # Continue anyway
+  # Step 5: Verify the import by locating the certificate with OUR serial number
+  if [ -z "$file_serial" ]; then
+    _warn "Cannot verify certificate import - could not read serial number from $cert_file"
+    return 0
   fi
+  _debug "Verifying certificate import by serial number..."
+  local domain_cert_response found
+  domain_cert_response=$(api_call "GET" "/certificate?common-name=$domain" "")
+  if found=$(find_certificate_by_serial "$domain_cert_response" "$file_serial"); then
+    _info "Certificate import verification successful - serial $file_serial present as '${found#*|}'"
+    return 0
+  fi
+  _err "Certificate import verification failed - no certificate with serial $file_serial found for $domain"
+  return 1
+}
+
+# Normalise a certificate serial: strip colons, lower-case
+normalise_serial() {
+  printf '%s' "$1" | tr -d ':' | tr '[:upper:]' '[:lower:]'
+}
+
+# Find the certificate whose serial-number matches, in a RouterOS REST
+# /certificate array. Prints "<.id>|<name>" and returns 0, or prints nothing
+# and returns 1. This is how we identify the certificate we just imported:
+# matching on common-name alone returns the OLD certificate first.
+find_certificate_by_serial() {
+  local response="$1"
+  local wanted
+  wanted=$(normalise_serial "$2")
+  [ -z "$response" ] || [ "$response" = "[]" ] || [ -z "$wanted" ] && return 1
+
+  local obj obj_serial obj_id obj_name
+  while IFS= read -r obj; do
+    obj_serial=$(normalise_serial "$(echo "$obj" | grep -o '"serial-number":"[^"]*"' | cut -d'"' -f4)")
+    if [ "$obj_serial" = "$wanted" ]; then
+      obj_id=$(echo "$obj" | grep -o '"\.id":"[^"]*"' | cut -d'"' -f4)
+      obj_name=$(echo "$obj" | grep -o '"name":"[^"]*"' | cut -d'"' -f4)
+      [ -n "$obj_id" ] || return 1
+      printf '%s|%s\n' "$obj_id" "$obj_name"
+      return 0
+    fi
+  done < <(echo "$response" | grep -o '{[^}]*}')
+  return 1
+}
+
+# Make sure <name> is free for certificate <our_id>: if a DIFFERENT
+# certificate currently holds it (typically the previous, now superseded
+# one), rename that certificate to <name>-superseded-<epoch>.
+free_certificate_name() {
+  local name="$1"
+  local our_id="$2"
+  local response holder_id
+  if ! response=$(api_call "GET" "/certificate?name=$name" ""); then
+    _warn "Could not check whether certificate name '$name' is free"
+    return 1
+  fi
+  [ -z "$response" ] || [ "$response" = "[]" ] && return 0
+  holder_id=$(echo "$response" | grep -o '"\.id":"[^"]*"' | cut -d'"' -f4 | head -1)
+  [ -z "$holder_id" ] || [ "$holder_id" = "$our_id" ] && return 0
+
+  local parked="${name}-superseded-$(date +%s)"
+  _info "Certificate name '$name' is held by a previous certificate ($holder_id); renaming it to '$parked'"
+  if api_call "PATCH" "/certificate/$holder_id" "$(printf '{"name":"%s"}' "$parked")" >/dev/null; then
+    return 0
+  fi
+  _warn "Failed to rename previous certificate $holder_id to '$parked'"
+  return 1
 }
 
 # Get certificate details by name pattern
@@ -858,6 +889,21 @@ rename_certificate() {
   fi
 }
 
+# Print the certificate name bound to <service_name> from a /ip/service
+# response (JSON array). Empty if the service or field is absent.
+service_certificate_from_response() {
+  local response="$1"
+  local service_name="$2"
+  local obj
+  while IFS= read -r obj; do
+    if echo "$obj" | grep -q '"name":"'"$service_name"'"'; then
+      echo "$obj" | grep -o '"certificate":"[^"]*"' | cut -d'"' -f4 | head -1
+      return 0
+    fi
+  done < <(echo "$response" | grep -o '{[^}]*}')
+  return 1
+}
+
 # Verify service is using correct certificate name
 verify_service_certificate() {
   local service_name="$1"
@@ -872,10 +918,13 @@ verify_service_certificate() {
     return 1
   fi
   
-  # Extract certificate name for the specific service (take first match only)
+  # The response is one JSON array on a single line: isolate the object for
+  # THIS service before reading its certificate field, otherwise a grep over
+  # the whole line returns the first "certificate" of any service (e.g. the
+  # dynamic reverse-proxy entry) and the check fails spuriously.
   local current_cert
-  current_cert=$(echo "$response" | grep '"name":"'$service_name'"' | grep -o '"certificate":"[^"]*"' | cut -d'"' -f4 | head -1)
-  
+  current_cert=$(service_certificate_from_response "$response" "$service_name")
+
   if [ "$current_cert" = "$expected_cert_name" ]; then
     _debug "$service_name service correctly using certificate: $current_cert"
     return 0
@@ -1021,33 +1070,31 @@ Config file search locations:
     _debug "No fullchain file provided, skipping intermediate CA upload"
   fi
   
-  # Step 2: Find the certificate (use existing one since verification passed)
-  _info "Step 2: Finding certificate for service updates..."
-  local imported_cert_id
-  
-  # Since verification passed, we know the certificate exists - get its ID
+  # Step 2: Find the certificate we just imported - by serial number.
+  # (Matching on common-name alone returns the previous certificate first,
+  #  which used to get bound and renamed while the new one stayed as temp-*.)
+  _info "Step 2: Finding the imported certificate by serial number..."
+  local imported_cert_id="" current_cert_name="" new_serial found
+  new_serial=$(normalise_serial "$(openssl x509 -in "$cert_to_upload" -noout -serial 2>/dev/null | cut -d= -f2)")
+  _debug "Imported certificate serial: $new_serial"
+
   local cert_response
   cert_response=$(api_call "GET" "/certificate?common-name=$domain" "")
-  
-  if [ -n "$cert_response" ] && [ "$cert_response" != "[]" ]; then
-    imported_cert_id=$(echo "$cert_response" | grep -o '"\.id":"[^"]*"' | cut -d'"' -f4 | head -1)
-    _debug "Found certificate with ID: $imported_cert_id"
+  if found=$(find_certificate_by_serial "$cert_response" "$new_serial"); then
+    imported_cert_id="${found%%|*}"
+    current_cert_name="${found#*|}"
+    _debug "Found imported certificate: id=$imported_cert_id name=$current_cert_name"
   else
-    _err_exit "Could not find certificate for domain: $domain"
+    _err_exit "Could not find the imported certificate (serial $new_serial) for domain: $domain"
   fi
-  
+  if [ -z "$current_cert_name" ]; then
+    _err_exit "Could not determine the imported certificate's name for service updates"
+  fi
+
   # Step 3: Update services to use the new certificate
   _info "Step 3: Updating services..."
   local services_updated=0
   local services_failed=0
-  
-  # Get the certificate name from the certificate we already found and verified
-  local current_cert_name
-  current_cert_name=$(echo "$cert_response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4 | head -1)
-  
-  if [ -z "$current_cert_name" ]; then
-    _err_exit "Could not determine current certificate name for service updates"
-  fi
   
   _debug "Using certificate name for service updates: $current_cert_name"
   
@@ -1084,6 +1131,7 @@ Config file search locations:
   
   # Step 4: Rename certificate to final name
   _info "Step 4: Renaming certificate to final name..."
+  free_certificate_name "$final_cert_name" "$imported_cert_id" || _warn "Proceeding with rename anyway"
   if ! rename_certificate "$imported_cert_id" "$final_cert_name"; then
     _warn "Certificate rename failed, but services are updated with working certificate"
   fi
@@ -1104,27 +1152,25 @@ Config file search locations:
     fi
   fi
   
-  # Step 6: Show final certificate status
+  # Step 6: Show final certificate status (the certificate carrying the final name)
   _info "Step 6: Verifying final certificate deployment..."
   local final_response
-  if final_response=$(api_call "GET" "/certificate?common-name=$domain" ""); then
+  if final_response=$(api_call "GET" "/certificate?name=$final_cert_name" ""); then
     if [ -n "$final_response" ] && [ "$final_response" != "[]" ]; then
-      local final_cert_name_actual=$(echo "$final_response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4)
-      local final_cert_expiry=$(echo "$final_response" | grep -o '"invalid-after":"[^"]*"' | cut -d'"' -f4)
-      local final_cert_expires_after=$(echo "$final_response" | grep -o '"expires-after":"[^"]*"' | cut -d'"' -f4)
-      local final_cert_id=$(echo "$final_response" | grep -o '"\.id":"[^"]*"' | cut -d'"' -f4)
-      
-      # Determine if certificate is valid or expired
-      local final_status="Valid"
+      local final_cert_expiry final_cert_expires_after final_cert_id final_status="Valid"
+      final_cert_expiry=$(echo "$final_response" | grep -o '"invalid-after":"[^"]*"' | cut -d'"' -f4 | head -1)
+      final_cert_expires_after=$(echo "$final_response" | grep -o '"expires-after":"[^"]*"' | cut -d'"' -f4 | head -1)
+      final_cert_id=$(echo "$final_response" | grep -o '"\.id":"[^"]*"' | cut -d'"' -f4 | head -1)
       if echo "$final_cert_expires_after" | grep -q "^-"; then
         final_status="EXPIRED"
       fi
-      
-      _info "New certificate deployed: $final_cert_name_actual ($final_status, expires: $final_cert_expiry)"
-      _debug "Final certificate details: ID=$final_cert_id, Name=$final_cert_name_actual, Status=$final_status, Expires=$final_cert_expiry"
+      _info "New certificate deployed: $final_cert_name ($final_status, expires: $final_cert_expiry)"
+      _debug "Final certificate details: ID=$final_cert_id, Name=$final_cert_name, Status=$final_status, Expires=$final_cert_expiry"
+    else
+      _warn "Certificate '$final_cert_name' not found after deployment"
     fi
   fi
-  
+
   # Report results
   if [ "$services_failed" -gt 0 ]; then
     _warn "Certificate uploaded successfully, but $services_failed service(s) failed to update"
